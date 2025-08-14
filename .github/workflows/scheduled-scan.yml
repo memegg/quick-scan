@@ -1,0 +1,242 @@
+name: Scheduled Security Scan
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+    
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Override default target URL'
+        required: false
+        type: string
+        default: 'https://your-website.com'
+
+jobs:
+  scheduled-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4 lxml
+        
+    - name: Set target URL
+      run: |
+        if [ -n "${{ inputs.target_url }}" ]; then
+          echo "TARGET_URL=${{ inputs.target_url }}" >> $GITHUB_ENV
+        else
+          echo "TARGET_URL=https://your-website.com" >> $GITHUB_ENV
+        fi
+        
+    - name: Create scheduled scanner
+      run: |
+        cat > scheduled_scanner.py << 'EOF'
+        #!/usr/bin/env python3
+        import requests
+        from bs4 import BeautifulSoup
+        import json
+        from datetime import datetime
+        import os
+        
+        def scheduled_scan():
+            target_url = os.environ.get('TARGET_URL', 'https://your-website.com')
+            print(f"Starting scheduled security scan of: {target_url}")
+            
+            try:
+                response = requests.get(target_url, timeout=30)
+                vulnerabilities = []
+                
+                # Check security headers
+                headers = response.headers
+                security_headers = {
+                    'X-Frame-Options': 'Missing X-Frame-Options (clickjacking risk)',
+                    'X-Content-Type-Options': 'Missing X-Content-Type-Options (MIME sniffing risk)',
+                    'X-XSS-Protection': 'Missing X-XSS-Protection',
+                    'Strict-Transport-Security': 'Missing HSTS (HTTPS enforcement)',
+                    'Content-Security-Policy': 'Missing CSP (XSS protection)',
+                    'Referrer-Policy': 'Missing Referrer-Policy'
+                }
+                
+                for header, description in security_headers.items():
+                    if header not in headers:
+                        vulnerabilities.append({
+                            'type': 'Missing Security Header',
+                            'header': header,
+                            'risk_level': 'Low',
+                            'description': description,
+                            'mitigation': f'Implement {header} header'
+                        })
+                
+                # Check for forms and inputs
+                soup = BeautifulSoup(response.text, 'html.parser')
+                forms = soup.find_all('form')
+                
+                for form in forms:
+                    inputs = form.find_all(['input', 'textarea'])
+                    if inputs:
+                        vulnerabilities.append({
+                            'type': 'Form Input Found',
+                            'risk_level': 'Info',
+                            'description': f'Found form with {len(inputs)} input fields',
+                            'mitigation': 'Test these inputs for XSS and injection vulnerabilities'
+                        })
+                
+                # Check for common vulnerabilities
+                if any(pattern in response.text.lower() for pattern in ['sql syntax', 'mysql_fetch', 'oracle error']):
+                    vulnerabilities.append({
+                        'type': 'Potential SQL Error Exposure',
+                        'risk_level': 'Medium',
+                        'description': 'SQL error messages found in response',
+                        'mitigation': 'Hide SQL errors from users'
+                    })
+                
+                # Check for HTTPS
+                if not target_url.startswith('https://'):
+                    vulnerabilities.append({
+                        'type': 'HTTP Not Secure',
+                        'risk_level': 'High',
+                        'description': 'Website is not using HTTPS',
+                        'mitigation': 'Enable HTTPS and redirect HTTP traffic'
+                    })
+                
+                # Generate report
+                report = {
+                    'scan_info': {
+                        'target_url': target_url,
+                        'scan_type': 'scheduled',
+                        'scan_date': datetime.now().isoformat(),
+                        'total_vulnerabilities': len(vulnerabilities),
+                        'status': 'completed'
+                    },
+                    'vulnerabilities': vulnerabilities,
+                    'summary': {
+                        'critical': len([v for v in vulnerabilities if v['risk_level'] == 'Critical']),
+                        'high': len([v for v in vulnerabilities if v['risk_level'] == 'High']),
+                        'medium': len([v for v in vulnerabilities if v['risk_level'] == 'Medium']),
+                        'low': len([v for v in vulnerabilities if v['risk_level'] == 'Low']),
+                        'info': len([v for v in vulnerabilities if v['risk_level'] == 'Info'])
+                    }
+                }
+                
+                # Save report
+                with open('scheduled_scan_report.json', 'w') as f:
+                    json.dump(report, f, indent=2)
+                
+                print(f"Scheduled scan completed. Found {len(vulnerabilities)} issues.")
+                return report
+                
+            except Exception as e:
+                error_report = {
+                    'scan_info': {
+                        'target_url': target_url,
+                        'scan_type': 'scheduled',
+                        'scan_date': datetime.now().isoformat(),
+                        'status': 'failed',
+                        'error': str(e)
+                    },
+                    'vulnerabilities': []
+                }
+                
+                with open('scheduled_scan_report.json', 'w') as f:
+                    json.dump(error_report, f, indent=2)
+                
+                print(f"Scan failed: {e}")
+                return error_report
+        
+        if __name__ == "__main__":
+            scheduled_scan()
+        EOF
+        
+    - name: Run scheduled scan
+      run: |
+        python scheduled_scanner.py
+        
+    - name: Upload results
+      uses: actions/upload-artifact@v3
+      with:
+        name: scheduled-scan-results
+        path: scheduled_scan_report.json
+        retention-days: 90
+        
+    - name: Create summary
+      run: |
+        if [ -f "scheduled_scan_report.json" ]; then
+          echo "## Scheduled Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** ${{ env.TARGET_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Parse and display results
+          python -c "
+        import json
+        with open('scheduled_scan_report.json', 'r') as f:
+            data = json.load(f)
+        
+        if data['scan_info']['status'] == 'completed':
+            print(f'**Status:** ✅ Completed')
+            print(f'**Total Issues:** {data[\"scan_info\"][\"total_vulnerabilities\"]}')
+            print()
+            
+            if data['summary']['critical'] > 0:
+                print(f'🚨 **Critical:** {data[\"summary\"][\"critical\"]}')
+            if data['summary']['high'] > 0:
+                print(f'⚠️ **High:** {data[\"summary\"][\"high\"]}')
+            if data['summary']['medium'] > 0:
+                print(f'🔶 **Medium:** {data[\"summary\"][\"medium\"]}')
+            if data['summary']['low'] > 0:
+                print(f'🔷 **Low:** {data[\"summary\"][\"low\"]}')
+            if data['summary']['info'] > 0:
+                print(f'ℹ️ **Info:** {data[\"summary\"][\"info\"]}')
+            print()
+            
+            if data['vulnerabilities']:
+                print('### Issues Found:')
+                for i, vuln in enumerate(data['vulnerabilities'], 1):
+                    print(f'{i}. **{vuln[\"type\"]}** ({vuln[\"risk_level\"]})')
+                    print(f'   - {vuln[\"description\"]}')
+                    print(f'   - Mitigation: {vuln[\"mitigation\"]}')
+                    print()
+            else:
+                print('✅ No security issues detected in this scheduled scan.')
+        else:
+            print(f'**Status:** ❌ Failed')
+            print(f'**Error:** {data[\"scan_info\"][\"error\"]}')
+        " >> $GITHUB_STEP_SUMMARY
+        fi
+        
+    - name: Comment on issues (if any)
+      if: always()
+      run: |
+        if [ -f "scheduled_scan_report.json" ]; then
+          python -c "
+        import json
+        with open('scheduled_scan_report.json', 'r') as f:
+            data = json.load(f)
+        
+        if data['scan_info']['status'] == 'completed' and data['vulnerabilities']:
+            critical_count = data['summary']['critical']
+            high_count = data['summary']['high']
+            
+            if critical_count > 0 or high_count > 0:
+                print('🚨 **URGENT:** High/Critical vulnerabilities detected!')
+                print('Please review the scan report and take immediate action.')
+            elif data['summary']['medium'] > 0:
+                print('⚠️ **Attention:** Medium risk vulnerabilities found.')
+                print('Review and address these issues in the next release.')
+            else:
+                print('✅ **Good:** Only low-risk issues found.')
+                print('Continue monitoring and address when convenient.')
+        " >> $GITHUB_STEP_SUMMARY
+        fi
