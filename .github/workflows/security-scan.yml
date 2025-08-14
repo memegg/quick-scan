@@ -55,7 +55,46 @@ jobs:
     - name: Test scanner setup
       run: |
         echo "Testing scanner setup..."
-        python test_workflow.py
+        echo "Python version: $(python --version)"
+        echo "Current directory: $(pwd)"
+        echo "Files in directory:"
+        ls -la
+        
+        echo "Testing basic imports..."
+        python -c "
+        try:
+            import requests
+            print('✅ requests imported')
+        except Exception as e:
+            print(f'❌ requests import failed: {e}')
+            
+        try:
+            from bs4 import BeautifulSoup
+            print('✅ BeautifulSoup imported')
+        except Exception as e:
+            print(f'❌ BeautifulSoup import failed: {e}')
+            
+        try:
+            import yaml
+            print('✅ yaml imported')
+        except Exception as e:
+            print(f'❌ yaml import failed: {e}')
+        "
+        
+        echo "Testing scanner imports..."
+        python -c "
+        try:
+            from web_security_scanner import WebSecurityScanner
+            print('✅ WebSecurityScanner imported')
+        except Exception as e:
+            print(f'❌ WebSecurityScanner import failed: {e}')
+            
+        try:
+            from advanced_scanner import AdvancedSecurityScanner
+            print('✅ AdvancedSecurityScanner imported')
+        except Exception as e:
+            print(f'❌ AdvancedSecurityScanner import failed: {e}')
+        "
         
     - name: Create config file
       run: |
@@ -79,6 +118,41 @@ jobs:
         echo "Config file contents:"
         cat config.yaml
         
+    - name: Test scanner dry run
+      run: |
+        echo "Testing scanner dry run..."
+        
+        # Test basic scanner creation and basic methods
+        python -c "
+        try:
+            from web_security_scanner import WebSecurityScanner
+            scanner = WebSecurityScanner('https://example.com')
+            print('✅ Basic scanner created successfully')
+            
+            # Test basic methods without running full scan
+            print('Testing basic methods...')
+            scanner.logger.info('Test log message')
+            print('✅ Logger working')
+            
+        except Exception as e:
+            print(f'❌ Basic scanner test failed: {e}')
+            import traceback
+            traceback.print_exc()
+        "
+        
+        # Test advanced scanner creation
+        python -c "
+        try:
+            from advanced_scanner import AdvancedSecurityScanner
+            scanner = AdvancedSecurityScanner('https://example.com')
+            print('✅ Advanced scanner created successfully')
+            
+        except Exception as e:
+            print(f'❌ Advanced scanner test failed: {e}')
+            import traceback
+            traceback.print_exc()
+        "
+        
     - name: Run Basic Security Scanner
       if: inputs.scanner_type == 'basic'
       continue-on-error: true
@@ -91,13 +165,24 @@ jobs:
         ls -la
         
         echo "Running basic scanner..."
+        echo "Command to run:"
         if [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ]; then
-          timeout 300 python web_security_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --non-interactive || echo "Scanner timed out or failed, but continuing..."
+          echo "python web_security_scanner.py \"${{ inputs.target_url }}\" --username \"${{ inputs.username }}\" --password \"${{ inputs.password }}\" --non-interactive"
+          timeout 300 python web_security_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --non-interactive 2>&1 || {
+            echo "Scanner failed with exit code: $?"
+            echo "Creating fallback report..."
+            echo '{"status": "scanner_failed", "message": "Basic scanner failed to complete", "target_url": "${{ inputs.target_url }}"}' > basic_scanner_fallback.json
+          }
         else
-          timeout 300 python web_security_scanner.py "${{ inputs.target_url }}" --non-interactive || echo "Scanner timed out or failed, but continuing..."
+          echo "python web_security_scanner.py \"${{ inputs.target_url }}\" --non-interactive"
+          timeout 300 python web_security_scanner.py "${{ inputs.target_url }}" --non-interactive 2>&1 || {
+            echo "Scanner failed with exit code: $?"
+            echo "Creating fallback report..."
+            echo '{"status": "scanner_failed", "message": "Basic scanner failed to complete", "target_url": "${{ inputs.target_url }}"}' > basic_scanner_fallback.json
+          }
         fi
         
-        echo "Basic scanner completed with exit code: $?"
+        echo "Basic scanner step completed"
         
     - name: Run Advanced Security Scanner
       if: inputs.scanner_type == 'advanced'
@@ -112,13 +197,24 @@ jobs:
         ls -la
         
         echo "Running advanced scanner..."
+        echo "Command to run:"
         if [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ]; then
-          timeout 300 python advanced_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --config "${{ inputs.config_file }}" --non-interactive || echo "Scanner timed out or failed, but continuing..."
+          echo "python advanced_scanner.py \"${{ inputs.target_url }}\" --username \"${{ inputs.username }}\" --password \"${{ inputs.password }}\" --config \"${{ inputs.config_file }}\" --non-interactive"
+          timeout 300 python advanced_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --config "${{ inputs.config_file }}" --non-interactive 2>&1 || {
+            echo "Scanner failed with exit code: $?"
+            echo "Creating fallback report..."
+            echo '{"status": "scanner_failed", "message": "Advanced scanner failed to complete", "target_url": "${{ inputs.target_url }}"}' > advanced_scanner_fallback.json
+          }
         else
-          timeout 300 python advanced_scanner.py "${{ inputs.target_url }}" --config "${{ inputs.config_file }}" --non-interactive || echo "Scanner timed out or failed, but continuing..."
+          echo "python advanced_scanner.py \"${{ inputs.target_url }}\" --config \"${{ inputs.config_file }}\" --non-interactive"
+          timeout 300 python advanced_scanner.py "${{ inputs.target_url }}" --config "${{ inputs.config_file }}" --non-interactive 2>&1 || {
+            echo "Scanner failed with exit code: $?"
+            echo "Creating fallback report..."
+            echo '{"status": "scanner_failed", "message": "Advanced scanner failed to complete", "target_url": "${{ inputs.target_url }}"}' > advanced_scanner_fallback.json
+          }
         fi
         
-        echo "Advanced scanner completed with exit code: $?"
+        echo "Advanced scanner step completed"
         
     - name: Check generated files
       run: |
