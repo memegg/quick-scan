@@ -135,7 +135,7 @@ jobs:
         python quick_scanner.py "${{ inputs.target_url }}" "${{ inputs.scan_type }}"
         
     - name: Upload results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: quick-scan-results
         path: quick_scan_report.json

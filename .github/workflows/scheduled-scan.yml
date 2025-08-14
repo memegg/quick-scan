@@ -164,7 +164,7 @@ jobs:
         python scheduled_scanner.py
         
     - name: Upload results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: scheduled-scan-results
         path: scheduled_scan_report.json
