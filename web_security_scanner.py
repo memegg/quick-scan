@@ -22,15 +22,20 @@ import logging
 from datetime import datetime
 
 class WebSecurityScanner:
-    def __init__(self, target_url, username=None, password=None, max_threads=5):
+    def __init__(self, target_url, username=None, password=None, username2=None, password2=None, max_threads=5):
         self.target_url = target_url.rstrip('/')
         self.username = username
         self.password = password
+        self.username2 = username2
+        self.password2 = password2
         self.max_threads = max_threads
         self.session = requests.Session()
+        self.session2 = requests.Session()  # Second session for second account
         self.vulnerabilities = []
         self.endpoints = set()
         self.forms = []
+        self.user1_data = {}  # Store user1's data
+        self.user2_data = {}  # Store user2's data
         
         # Setup logging
         try:
@@ -350,6 +355,226 @@ class WebSecurityScanner:
             except Exception as e:
                 self.logger.error(f"Error testing directory traversal: {e}")
 
+    def test_idor(self):
+        """Test for IDOR (Insecure Direct Object Reference) vulnerabilities using two accounts"""
+        if not self.username or not self.password or not self.username2 or not self.password2:
+            self.logger.info("Two accounts required for IDOR testing, skipping")
+            return
+        
+        self.logger.info("Testing for IDOR vulnerabilities...")
+        
+        try:
+            # Authenticate both accounts
+            if not self.authenticate_account2():
+                self.logger.warning("Failed to authenticate second account, skipping IDOR tests")
+                return
+            
+            # Test common IDOR patterns
+            self.test_idor_profile_access()
+            self.test_idor_file_access()
+            self.test_idor_api_access()
+            self.test_idor_order_access()
+            
+        except Exception as e:
+            self.logger.error(f"Error during IDOR testing: {e}")
+
+    def authenticate_account2(self):
+        """Authenticate the second account"""
+        try:
+            login_data = {
+                'email': self.username2,
+                'password': self.password2
+            }
+            
+            response = self.session2.post(f"{self.target_url}/login", data=login_data)
+            if response.status_code == 200:
+                self.logger.info("Second account authentication successful")
+                return True
+            else:
+                self.logger.warning("Second account authentication failed")
+                return False
+        except Exception as e:
+            self.logger.error(f"Second account authentication error: {e}")
+            return False
+
+    def test_idor_profile_access(self):
+        """Test IDOR in profile access"""
+        self.logger.info("Testing IDOR in profile access...")
+        
+        # Get user1's profile
+        try:
+            response1 = self.session.get(f"{self.target_url}/profile")
+            if response1.status_code == 200:
+                # Extract user ID from response or try common patterns
+                user_ids = self.extract_user_ids(response1.text)
+                
+                for user_id in user_ids:
+                    # Try to access user2's profile with user1's session
+                    test_url = f"{self.target_url}/profile/{user_id}"
+                    response_test = self.session.get(test_url)
+                    
+                    if response_test.status_code == 200 and self.username2.lower() in response_test.text.lower():
+                        vulnerability = {
+                            'type': 'IDOR - Profile Access',
+                            'url': test_url,
+                            'payload': f'User1 accessing User2 profile with ID: {user_id}',
+                            'risk_level': 'High',
+                            'description': 'User can access other users profile information',
+                            'mitigation': 'Implement proper authorization checks and validate user ownership'
+                        }
+                        self.vulnerabilities.append(vulnerability)
+                        self.logger.warning(f"IDOR profile access vulnerability: {user_id}")
+                        
+        except Exception as e:
+            self.logger.error(f"Error testing IDOR profile access: {e}")
+
+    def test_idor_file_access(self):
+        """Test IDOR in file access"""
+        self.logger.info("Testing IDOR in file access...")
+        
+        # Try common file access patterns
+        file_patterns = [
+            '/files/{id}',
+            '/download/{id}',
+            '/documents/{id}',
+            '/uploads/{id}',
+            '/attachments/{id}'
+        ]
+        
+        for pattern in file_patterns:
+            # Try with different IDs
+            for test_id in range(1, 11):  # Test IDs 1-10
+                test_url = f"{self.target_url}{pattern.format(id=test_id)}"
+                
+                try:
+                    response = self.session.get(test_url)
+                    if response.status_code == 200:
+                        # Try to access the same file with user2's session
+                        response2 = self.session2.get(test_url)
+                        if response2.status_code == 200:
+                            # Check if content is different (indicating different files)
+                            if response.content != response2.content:
+                                vulnerability = {
+                                    'type': 'IDOR - File Access',
+                                    'url': test_url,
+                                    'payload': f'Different users can access different files with same ID pattern',
+                                    'risk_level': 'Medium',
+                                    'description': 'File access control may be insufficient',
+                                    'mitigation': 'Implement proper file access controls and user validation'
+                                }
+                                self.vulnerabilities.append(vulnerability)
+                                self.logger.warning(f"IDOR file access vulnerability: {test_url}")
+                                
+                except Exception as e:
+                    continue  # Skip if this endpoint doesn't exist
+
+    def test_idor_api_access(self):
+        """Test IDOR in API endpoints"""
+        self.logger.info("Testing IDOR in API endpoints...")
+        
+        # Common API patterns that might have IDOR
+        api_patterns = [
+            '/api/users/{id}',
+            '/api/orders/{id}',
+            '/api/posts/{id}',
+            '/api/comments/{id}',
+            '/api/messages/{id}'
+        ]
+        
+        for pattern in api_patterns:
+            for test_id in range(1, 6):  # Test IDs 1-5
+                test_url = f"{self.target_url}{pattern.format(id=test_id)}"
+                
+                try:
+                    response1 = self.session.get(test_url)
+                    response2 = self.session2.get(test_url)
+                    
+                    # If both users can access the same resource, it might be IDOR
+                    if response1.status_code == 200 and response2.status_code == 200:
+                        if response1.content != response2.content:
+                            vulnerability = {
+                                'type': 'IDOR - API Access',
+                                'url': test_url,
+                                'payload': f'Both users can access API resource with ID: {test_id}',
+                                'risk_level': 'High',
+                                'description': 'API endpoint allows access to other users data',
+                                'mitigation': 'Implement proper authorization in API endpoints'
+                            }
+                            self.vulnerabilities.append(vulnerability)
+                            self.logger.warning(f"IDOR API access vulnerability: {test_url}")
+                            
+                except Exception as e:
+                    continue
+
+    def test_idor_order_access(self):
+        """Test IDOR in order/purchase access"""
+        self.logger.info("Testing IDOR in order access...")
+        
+        # Try to access orders with different IDs
+        order_patterns = [
+            '/orders/{id}',
+            '/purchases/{id}',
+            '/transactions/{id}',
+            '/invoices/{id}'
+        ]
+        
+        for pattern in order_patterns:
+            for test_id in range(1, 6):
+                test_url = f"{self.target_url}{pattern.format(id=test_id)}"
+                
+                try:
+                    response1 = self.session.get(test_url)
+                    response2 = self.session2.get(test_url)
+                    
+                    if response1.status_code == 200 and response2.status_code == 200:
+                        if response1.content != response2.content:
+                            vulnerability = {
+                                'type': 'IDOR - Order Access',
+                                'url': test_url,
+                                'payload': f'Both users can access order with ID: {test_id}',
+                                'risk_level': 'High',
+                                'description': 'Users can access other users orders',
+                                'mitigation': 'Implement order ownership validation'
+                            }
+                            self.vulnerabilities.append(vulnerability)
+                            self.logger.warning(f"IDOR order access vulnerability: {test_url}")
+                            
+                except Exception as e:
+                    continue
+
+    def extract_user_ids(self, html_content):
+        """Extract potential user IDs from HTML content"""
+        user_ids = []
+        
+        # Look for common ID patterns
+        import re
+        
+        # Pattern for user IDs in HTML
+        patterns = [
+            r'user_id["\']?\s*:\s*["\']?(\d+)["\']?',
+            r'id["\']?\s*:\s*["\']?(\d+)["\']?',
+            r'data-user-id=["\']?(\d+)["\']?',
+            r'data-id=["\']?(\d+)["\']?'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, html_content)
+            user_ids.extend(matches)
+        
+        # Also try to find IDs in URLs
+        url_patterns = [
+            r'/profile/(\d+)',
+            r'/user/(\d+)',
+            r'/account/(\d+)'
+        ]
+        
+        for pattern in url_patterns:
+            matches = re.findall(pattern, html_content)
+            user_ids.extend(matches)
+        
+        # Remove duplicates and return
+        return list(set(user_ids))
+
     def run_scan(self):
         """Run the complete security scan"""
         self.logger.info(f"Starting security scan of: {self.target_url}")
@@ -381,6 +606,9 @@ class WebSecurityScanner:
         # Test authentication and directory traversal
         self.test_authentication()
         self.test_directory_traversal()
+        
+        # Test for IDOR vulnerabilities if two accounts are provided
+        self.test_idor()
         
         self.logger.info("Security scan completed")
         return self.generate_report()
@@ -431,8 +659,10 @@ class WebSecurityScanner:
 def main():
     parser = argparse.ArgumentParser(description='Web Application Security Scanner')
     parser.add_argument('url', help='Target URL to scan')
-    parser.add_argument('--username', help='Username for authentication')
-    parser.add_argument('--password', help='Password for authentication')
+    parser.add_argument('--username', help='Username for authentication (first account)')
+    parser.add_argument('--password', help='Password for authentication (first account)')
+    parser.add_argument('--username2', help='Username for second account (for IDOR testing)')
+    parser.add_argument('--password2', help='Password for second account (for IDOR testing)')
     parser.add_argument('--threads', type=int, default=5, help='Maximum number of threads')
     parser.add_argument('--non-interactive', action='store_true', help='Skip interactive prompts (for CI/CD)')
     
@@ -465,6 +695,8 @@ def main():
             target_url=args.url,
             username=args.username,
             password=args.password,
+            username2=args.username2,
+            password2=args.password2,
             max_threads=args.threads
         )
         

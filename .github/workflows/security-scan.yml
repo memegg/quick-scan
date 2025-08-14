@@ -8,11 +8,20 @@ on:
         required: true
         type: string
       username:
-        description: 'Username for authentication (optional)'
+        description: 'Username for first account (optional)'
         required: false
         type: string
       password:
-        description: 'Password for authentication (optional)'
+        description: 'Password for first account (optional)'
+        required: false
+        type: string
+        default: ''
+      username2:
+        description: 'Username for second account (for IDOR testing)'
+        required: false
+        type: string
+      password2:
+        description: 'Password for second account (for IDOR testing)'
         required: false
         type: string
         default: ''
@@ -166,7 +175,14 @@ jobs:
         
         echo "Running basic scanner..."
         echo "Command to run:"
-        if [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ]; then
+        if [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ] && [ -n "${{ inputs.username2 }}" ] && [ -n "${{ inputs.password2 }}" ]; then
+          echo "python web_security_scanner.py \"${{ inputs.target_url }}\" --username \"${{ inputs.username }}\" --password \"${{ inputs.password }}\" --username2 \"${{ inputs.username2 }}\" --password2 \"${{ inputs.password2 }}\" --non-interactive"
+          timeout 300 python web_security_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --username2 "${{ inputs.username2 }}" --password2 "${{ inputs.password2 }}" --non-interactive 2>&1 || {
+            echo "Scanner failed with exit code: $?"
+            echo "Creating fallback report..."
+            echo '{"status": "scanner_failed", "message": "Basic scanner failed to complete", "target_url": "${{ inputs.target_url }}"}' > basic_scanner_fallback.json
+          }
+        elif [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ]; then
           echo "python web_security_scanner.py \"${{ inputs.target_url }}\" --username \"${{ inputs.username }}\" --password \"${{ inputs.password }}\" --non-interactive"
           timeout 300 python web_security_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --non-interactive 2>&1 || {
             echo "Scanner failed with exit code: $?"
@@ -198,7 +214,14 @@ jobs:
         
         echo "Running advanced scanner..."
         echo "Command to run:"
-        if [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ]; then
+        if [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ] && [ -n "${{ inputs.username2 }}" ] && [ -n "${{ inputs.password2 }}" ]; then
+          echo "python advanced_scanner.py \"${{ inputs.target_url }}\" --username \"${{ inputs.username }}\" --password \"${{ inputs.password }}\" --username2 \"${{ inputs.username2 }}\" --password2 \"${{ inputs.password2 }}\" --config \"${{ inputs.config_file }}\" --non-interactive"
+          timeout 300 python advanced_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --username2 "${{ inputs.username2 }}" --password2 "${{ inputs.password2 }}" --config "${{ inputs.config_file }}" --non-interactive 2>&1 || {
+            echo "Scanner failed with exit code: $?"
+            echo "Creating fallback report..."
+            echo '{"status": "scanner_failed", "message": "Advanced scanner failed to complete", "target_url": "${{ inputs.target_url }}"}' > advanced_scanner_fallback.json
+          }
+        elif [ -n "${{ inputs.username }}" ] && [ -n "${{ inputs.password }}" ]; then
           echo "python advanced_scanner.py \"${{ inputs.target_url }}\" --username \"${{ inputs.username }}\" --password \"${{ inputs.password }}\" --config \"${{ inputs.config_file }}\" --non-interactive"
           timeout 300 python advanced_scanner.py "${{ inputs.target_url }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}" --config "${{ inputs.config_file }}" --non-interactive 2>&1 || {
             echo "Scanner failed with exit code: $?"
